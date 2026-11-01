@@ -1,14 +1,13 @@
-import os
-
 from miio import MiotDevice
 from miio.exceptions import DeviceException
 
 
 class Plug:
-    def __init__(self):
-        self.device = MiotDevice(ip=os.environ["MCWEB_PLUG_IP"], token=os.environ["MCWEB_PLUG_TOKEN"], model=os.environ["MCWEB_PLUG_MODEL"], timeout=5, mapping={})
-        self.siid = int(os.environ["MCWEB_PLUG_SWITCH_SIID"])
-        self.piid = int(os.environ["MCWEB_PLUG_SWITCH_PIID"])
+    def __init__(self, ip, token, model, siid, piid):
+        self.device = MiotDevice(ip=ip, token=token, model=model, timeout=5, mapping={})
+        self.token = token
+        self.siid = int(siid)
+        self.piid = int(piid)
 
     @staticmethod
     def check(response):

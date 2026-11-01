@@ -11,6 +11,7 @@ import Console from "./Console.vue"
 import Users from "./Users.vue"
 import Policy from "./Policy.vue"
 import LogViewer from "./LogViewer.vue"
+import PlugSettings from "./PlugSettings.vue"
 
 type User = { username: string; role: "admin" | "user" }
 type Status = { host: string; container?: string; minecraft: string; minecraft_version?: string | null; neoforge_version?: string | null; mod_version?: string | null; plug: string; server_lan_address?: string; server_address?: string; operation?: Operation | null; shutdown?: string; shutdown_error?: string | null; policy_revision?: number | null; policy_enabled?: boolean; idle_since?: number | null; idle_policy?: {day_minutes:number; night_minutes:number; day_start:string; night_start:string; timezone:string}; online?: number | null; max_players?: number | null; players?: {name:string; uuid:string}[]; tps?: number | null; mspt?: number | null; memory_used?: number | null; memory_max?: number | null; host_cpu?: number | null; host_memory_used?: number | null; host_memory_max?: number | null; uptime_seconds?: number | null }
@@ -153,6 +154,7 @@ onUnmounted(() => { source?.close(); if (clockTimer) clearInterval(clockTimer) }
       <MoeCard class="notice"><h2>服务器电源</h2><p v-if="operation?.status === 'running'" role="status">{{ operation.detail }}<span v-if="operation.created_at"> · 已用时 {{ Math.max(0, Math.floor((clock / 1000 - operation.created_at) / 60)) }} 分钟</span></p><p v-else-if="shutdownMessage" role="status">{{ shutdownMessage }}</p><p v-else-if="operation" role="status">{{ operation.detail }}</p><p v-else>按需启动服务器，启动可能需要几分钟。</p><MoeSteps v-if="operation?.kind === 'start' && operation.status === 'running'" label="启动阶段" :items="steps" :current="startStep" /><MoeProgress v-if="operation?.status === 'running'" label="正在处理" :value="null" /><p v-if="error" role="alert" class="error">{{ error }}</p><MoeButton :disabled="starting || operation?.status === 'running' || status.minecraft === 'ready' || status.shutdown === 'preparing' || status.shutdown === 'poweroff_requested'" @click="lifecycle('server/start')">{{ starting || operation?.status === 'running' ? '操作进行中' : '启动服务器' }}</MoeButton> <MoeButton v-if="current.role === 'admin'" color="danger" variant="bordered" :disabled="starting || operation?.status === 'running' || status.minecraft !== 'ready'" @click="shutdownServer">关闭服务器</MoeButton></MoeCard>
       <Console v-if="current.role === 'admin'" />
       <Policy v-if="current.role === 'admin'" :applied-revision="status.policy_revision" :effective-enabled="status.policy_enabled" :shutdown-state="status.shutdown" :shutdown-error="status.shutdown_error" />
+      <PlugSettings v-if="current.role === 'admin'" />
       <LogViewer v-if="current.role === 'admin'" :lines="logs" @reload="loadLogs" />
       <Users :is-admin="current.role === 'admin'" />
     </template>

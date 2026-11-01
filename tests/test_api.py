@@ -4,6 +4,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -48,6 +49,22 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/v1/auth/logout", headers={"Origin": "http://testserver"}).status_code, 403)
         self.assertEqual(self.client.post("/api/v1/auth/logout", headers=self.headers()).status_code, 200)
         self.assertEqual(self.client.get("/api/v1/auth/me").status_code, 401)
+
+    def test_plug_configuration_permission_validation_and_secret(self):
+        self.login("user")
+        payload = {"ip": "192.168.1.20", "token": "a" * 32, "model": "test.plug", "siid": 2, "piid": 1}
+        self.assertEqual(self.client.put("/api/v1/admin/plug", headers=self.headers(), json=payload).status_code, 403)
+        self.client.post("/api/v1/auth/logout", headers=self.headers())
+        self.login("admin")
+        with patch("app.main.Plug") as device:
+            device.return_value.status.return_value = True
+            response = self.client.put("/api/v1/admin/plug", headers=self.headers(), json=payload)
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn("token", self.client.get("/api/v1/admin/plug").json())
+            device.return_value.status.side_effect = RuntimeError("offline")
+            payload["ip"] = "192.168.1.21"
+            self.assertEqual(self.client.put("/api/v1/admin/plug", headers=self.headers(), json=payload).status_code, 502)
+            self.assertEqual(self.client.get("/api/v1/admin/plug").json()["ip"], "192.168.1.20")
 
     def test_multiple_same_origin_addresses_and_cross_origin_rejection(self):
         credentials = {"username": "user", "password": "long-enough-password"}

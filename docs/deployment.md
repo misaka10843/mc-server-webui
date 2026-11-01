@@ -27,7 +27,7 @@ sudo chown 1000:1000 data
 - `MCWEB_SERVER_ADDRESS` 仅用于在网页展示公网游戏地址，可留空；它不参与开关机。
 - `MCWEB_AGENT_TOKEN` 用独立的高强度随机字符串。
 - `MCWEB_LAN_IP` 是常开设备的局域网 IP；后端 8000 只应允许笔记本访问。
-- `MCWEB_PLUG_*` 使用实际设备信息与已验证的开关属性。
+- 插座信息在管理员网页中设置，不需要填写 `MCWEB_PLUG_*`。已有完整环境变量配置会在数据库尚未配置插座时导入一次，之后以网页配置为准；导入后可删除旧环境变量。
 
 ```bash
 docker compose build
@@ -38,6 +38,8 @@ docker compose up -d
 也可以在镜像发布到 GHCR 后，在 `.env` 中设置 `MCWEB_IMAGE=ghcr.io/所有者/仓库名:latest`（镜像名使用小写），然后执行 `docker compose pull`、`docker compose run --rm webui python -m app.db 管理员用户名` 和 `docker compose up -d --no-build`。更新时重新执行 `docker compose pull` 和 `docker compose up -d --no-build`。私有 GHCR 包需要先登录并拥有拉取权限；公开包可匿名拉取。
 
 管理员初始化通过交互式输入密码。`data/` 为 SQLite 数据目录，需要定期备份；使用 SQLite 在线备份工具，或者先停止容器再复制整个目录，确保 WAL 内容一并保存。使用防火墙将 8000 限制为笔记本 IP。8080 提供网页和浏览器 API，不接受内部代理连接；8000 只接受代理 WebSocket。Web 监听常开设备的 8080 端口，你可以通过 `http://常开设备局域网IP:8080` 访问；frpc 仍可连接 `127.0.0.1:8080` 并转发到阿里云。后端根据当前请求校验同源和 CSRF，不需要预先列出网页 IP；如另外使用 HTTP 反向代理，必须原样传递包含端口的 Host。两个地址在浏览器中各自保存登录状态。公网入口目前是 HTTP，密码、会话和命令在浏览器到公网入口之间未加密。frpc 本身应启用认证和传输加密。
+
+登录管理员账号，在“智能插座设置”中填写设备 IP、token、型号和开关属性，保存前会实际读取状态；保存后立即生效。也可在运行 WebUI 的设备上通过 `http://localhost:8080` 打开页面，使用米家账号读取设备后选择插座。设备密码只用于本次查询；登录方式和设备兼容性取决于小米服务。IP 和 token 随设备或网络变化时可重新保存。数据库包含设备 token，应保护并备份 `data/`。
 
 示例 frpc 配置，按已有 frp 版本调整：
 

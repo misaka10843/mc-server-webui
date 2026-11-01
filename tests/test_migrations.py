@@ -22,7 +22,7 @@ class MigrationTests(unittest.TestCase):
                 db.initialize()
                 with db.connect() as conn:
                     self.assertEqual(conn.execute("SELECT username FROM users").fetchone()[0], "existing")
-                    self.assertEqual(conn.execute("SELECT version_num FROM alembic_version").fetchone()[0], "0002_session_csrf")
+                    self.assertEqual(conn.execute("SELECT version_num FROM alembic_version").fetchone()[0], "0003_plug")
                     self.assertEqual(conn.execute("SELECT day_minutes FROM server_policy").fetchone()[0], 90)
                     self.assertEqual(conn.execute("SELECT count(*) FROM sessions").fetchone()[0], 0)
             finally:

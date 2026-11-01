@@ -59,6 +59,9 @@ async def read_plug():
 
 async def monitor_plug():
     while True:
+        if plug is None:
+            await asyncio.sleep(30)
+            continue
         try:
             value = await read_plug()
             set_state({"plug": "on" if value else "off"})
@@ -115,13 +118,13 @@ async def lifespan(app: FastAPI):
         previous = db.execute("SELECT id, kind, status, detail, created_at FROM operations ORDER BY created_at DESC LIMIT 1").fetchone()
     state["operation"] = dict(previous) if previous else None
     keys = ("MCWEB_PLUG_IP", "MCWEB_PLUG_TOKEN", "MCWEB_PLUG_MODEL", "MCWEB_PLUG_SWITCH_SIID", "MCWEB_PLUG_SWITCH_PIID")
-    if any(os.environ.get(key) for key in keys):
-        if not all(os.environ.get(key) for key in keys):
-            raise RuntimeError("Incomplete smart plug configuration")
-        plug = Plug()
-        monitor = asyncio.create_task(monitor_plug())
-    else:
-        monitor = None
+    with connect() as db:
+        row = db.execute("SELECT ip, token, model, siid, piid FROM plug_config WHERE id=1").fetchone()
+        if row is None and all(os.environ.get(key) and not os.environ[key].startswith("REPLACE_WITH_") for key in keys):
+            db.execute("INSERT INTO plug_config VALUES (1,?,?,?,?,?)", tuple(os.environ[key] for key in keys))
+            row = db.execute("SELECT ip, token, model, siid, piid FROM plug_config WHERE id=1").fetchone()
+    plug = Plug(**dict(row)) if row else None
+    monitor = asyncio.create_task(monitor_plug())
     maintenance_task = asyncio.create_task(maintenance())
     try:
         yield
@@ -163,6 +166,20 @@ class PolicyUpdate(BaseModel):
     night_minutes: int = Field(ge=1, le=1440)
     night_start: str = Field(pattern=r"^\d{2}:\d{2}$")
     day_start: str = Field(pattern=r"^\d{2}:\d{2}$")
+
+
+class PlugConfig(BaseModel):
+    ip: str = Field(min_length=1, max_length=255)
+    token: str = Field(default="", max_length=128)
+    model: str = Field(min_length=1, max_length=255)
+    siid: int = Field(ge=1, le=65535)
+    piid: int = Field(ge=1, le=65535)
+
+
+class CloudLogin(BaseModel):
+    username: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1, max_length=1024)
+    locale: str = Field(pattern="^(cn|de|i2|ru|sg|us)$")
 
 
 class CommandRequest(BaseModel):
@@ -242,6 +259,51 @@ def audit(user_id, action, detail=""):
 def current_policy():
     with connect() as db:
         return dict(db.execute("SELECT revision, enabled, day_minutes, night_minutes, night_start, day_start FROM server_policy WHERE id=1").fetchone())
+
+
+@app.get("/api/v1/admin/plug")
+def get_plug_config(current=Depends(admin)):
+    with connect() as db:
+        row = db.execute("SELECT ip, model, siid, piid FROM plug_config WHERE id=1").fetchone()
+    return dict(row) if row else None
+
+
+@app.put("/api/v1/admin/plug")
+async def save_plug_config(data: PlugConfig, request: Request, current=Depends(admin)):
+    global plug
+    check_csrf(request, current)
+    async with operation_lock:
+        if current_operation is not None:
+            raise HTTPException(409, "服务器电源操作进行中，请稍后修改插座")
+        async with plug_lock:
+            with connect() as db:
+                previous = db.execute("SELECT token FROM plug_config WHERE id=1").fetchone()
+                token = data.token or (previous[0] if previous else "")
+                if not re.fullmatch(r"[0-9a-fA-F]{32}", token):
+                    raise HTTPException(422, "设备 token 必须为 32 位十六进制字符")
+                candidate = Plug(data.ip, token, data.model, data.siid, data.piid)
+                try:
+                    value = await asyncio.to_thread(candidate.status)
+                except Exception:
+                    raise HTTPException(502, "无法读取插座，请检查设备信息及局域网连接")
+                db.execute("INSERT INTO plug_config VALUES (1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET ip=excluded.ip, token=excluded.token, model=excluded.model, siid=excluded.siid, piid=excluded.piid", (data.ip, token, data.model, data.siid, data.piid))
+            plug = candidate
+            set_state({"plug": "on" if value else "off"})
+    audit(current["id"], "update_plug", data.model)
+    return {"ok": True}
+
+
+@app.post("/api/v1/admin/plug/discover")
+async def discover_plugs(data: CloudLogin, request: Request, current=Depends(admin)):
+    check_csrf(request, current)
+    if request.url.scheme != "https" and request.url.hostname not in ("localhost", "127.0.0.1", "::1"):
+        raise HTTPException(400, "米家账号登录需要 HTTPS 或本机访问")
+    from miio.cloud import CloudInterface
+    try:
+        devices = await asyncio.to_thread(CloudInterface(data.username, data.password).get_devices, data.locale)
+    except Exception:
+        raise HTTPException(502, "米家登录或读取设备失败，请检查账号、地区及验证要求")
+    return [{"name": d.name, "ip": d.ip, "token": d.token, "model": d.model} for d in devices.values() if not d.parent_id]
 
 
 @app.get("/api/v1/admin/policy")
@@ -421,8 +483,7 @@ async def command(data: CommandRequest, request: Request, current=Depends(admin)
     check_csrf(request, current)
     request_id = uuid.uuid4().hex
     command_text = data.input
-    for key in ("MCWEB_AGENT_TOKEN", "MCWEB_PLUG_TOKEN"):
-        secret = os.environ.get(key)
+    for secret in (os.environ.get("MCWEB_AGENT_TOKEN"), plug.token if plug else None):
         if secret:
             command_text = command_text.replace(secret, "[REDACTED]")
     audit(current["id"], "command", json.dumps({"id": request_id, "input": command_text}, ensure_ascii=False))
@@ -654,8 +715,7 @@ async def agent_socket(ws: WebSocket):
                     future.set_result(message)
             elif message.get("type") == "log" and isinstance(message.get("line"), str):
                 line = message["line"][:4096]
-                for key in ("MCWEB_AGENT_TOKEN", "MCWEB_PLUG_TOKEN"):
-                    secret = os.environ.get(key)
+                for secret in (os.environ.get("MCWEB_AGENT_TOKEN"), plug.token if plug else None):
                     if secret:
                         line = line.replace(secret, "[REDACTED]")
                 log_lines.append(line)
