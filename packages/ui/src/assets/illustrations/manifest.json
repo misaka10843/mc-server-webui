@@ -1,0 +1,137 @@
+{
+  "encoder": "Chromium Canvas WebP quality 0.88",
+  "entries": [
+    {
+      "key": "auth-welcome",
+      "file": "mascot-auth-welcome.webp",
+      "width": 880,
+      "height": 1100,
+      "bytes": 83556,
+      "source": "output/illustrations/2026-10-23-first-batch/mascot-auth-welcome.png",
+      "sourceBytes": 674975,
+      "sourceSHA256": "e5e818a6e2b61af94dcb1178eae1d92c3bf68487422aa270dcba2172ec6e48f1",
+      "transparentPixels": 754207
+    },
+    {
+      "key": "not-found",
+      "file": "state-not-found.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 37252,
+      "source": "output/illustrations/2026-10-23-first-batch/state-not-found.png",
+      "sourceBytes": 895934,
+      "sourceSHA256": "b3d68bc3689f2e9737dbbc9b93dcbf18d86b441bb9cf1163319f7b14a1af5395",
+      "transparentPixels": 163859
+    },
+    {
+      "key": "no-applications",
+      "file": "state-no-applications.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 45306,
+      "source": "output/illustrations/2026-10-23-first-batch/state-no-applications.png",
+      "sourceBytes": 1286655,
+      "sourceSHA256": "fcbd61b911f862f357d9fdab333386b5e835c5ff78a0d5050c6238df70bfa111",
+      "transparentPixels": 123886
+    },
+    {
+      "key": "no-results",
+      "file": "state-no-results.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 34420,
+      "source": "output/illustrations/2026-10-23-first-batch/state-no-results.png",
+      "sourceBytes": 824127,
+      "sourceSHA256": "2b99466e919a16815858db6b9f7d05006c00cd60b073f535eddab8dc026835a5",
+      "transparentPixels": 170856
+    },
+    {
+      "key": "service-unavailable",
+      "file": "state-service-unavailable.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 43926,
+      "source": "output/illustrations/2026-10-23-first-batch/state-service-unavailable.png",
+      "sourceBytes": 1223692,
+      "sourceSHA256": "59b7b4bdf11c01015b8e6ba2cbac55a459fc94716c2d4932dadd55cf4ee62ffb",
+      "transparentPixels": 133146
+    },
+    {
+      "key": "developer-welcome",
+      "file": "mascot-developer-welcome.webp",
+      "width": 900,
+      "height": 675,
+      "bytes": 62170,
+      "source": "output/illustrations/2026-10-23-second-batch/mascot-developer-welcome.png",
+      "sourceBytes": 707730,
+      "sourceSHA256": "1eb7ea5f637bdef4a26409483c01efc820e5cf75e2e3e530dec480423e1f7996",
+      "transparentPixels": 467845
+    },
+    {
+      "key": "access-restricted",
+      "file": "state-access-restricted.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 37120,
+      "source": "output/illustrations/2026-10-23-second-batch/state-access-restricted.png",
+      "sourceBytes": 1011595,
+      "sourceSHA256": "f4b866e87a8f882f6a0d6669d478df3ecf863e1f13b08e2a369f0440b8f40ac8",
+      "transparentPixels": 154094
+    },
+    {
+      "key": "session-expired",
+      "file": "state-session-expired.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 34420,
+      "source": "output/illustrations/2026-10-23-second-batch/state-session-expired.png",
+      "sourceBytes": 856267,
+      "sourceSHA256": "f750effa8c21386c83741cf247efe198e20d0c7ca517bb5d59a1becafcb17a9f",
+      "transparentPixels": 168040
+    },
+    {
+      "key": "no-records",
+      "file": "state-no-records.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 38852,
+      "source": "output/illustrations/2026-10-23-second-batch/state-no-records.png",
+      "sourceBytes": 1078459,
+      "sourceSHA256": "a197f8b987ee7297b8323db58fe220a3534c9f82bc72262cf12fa654cdf17381",
+      "transparentPixels": 142762
+    },
+    {
+      "key": "complete",
+      "file": "state-complete.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 30940,
+      "source": "output/illustrations/2026-10-23-second-batch/state-complete.png",
+      "sourceBytes": 755606,
+      "sourceSHA256": "deecf2d4183db220af0087e8431083c70d80728212d69e16e8d6bcd38d4ebf9b",
+      "transparentPixels": 176429
+    },
+    {
+      "key": "guide-helper",
+      "file": "mascot-guide-helper.webp",
+      "width": 480,
+      "height": 480,
+      "bytes": 39476,
+      "source": "output/illustrations/2026-10-23-second-batch/mascot-guide-helper.png",
+      "sourceBytes": 1177245,
+      "sourceSHA256": "a7eab2a683f61611c7866b312d23a62bddad6cfd53a6d01eba38bb57ebdb4e5c",
+      "transparentPixels": 127869
+    },
+    {
+      "key": "face-neutral",
+      "file": "mascot-face-neutral.webp",
+      "width": 192,
+      "height": 192,
+      "bytes": 12532,
+      "source": "output/illustrations/2026-10-23-second-batch/mascot-face-neutral.png",
+      "sourceBytes": 1370053,
+      "sourceSHA256": "578369ebb41d3b4c8e62f4c5a1945d8ab82a39f7d85689ac007425fc75691a17",
+      "transparentPixels": 17571
+    }
+  ]
+}

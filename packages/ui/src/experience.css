@@ -1,0 +1,38 @@
+@layer components {
+  .moe-page-body { display: flex; flex: 1; min-width: 0; flex-direction: column; }
+  .moe-page-rail { display: none; }
+  @media (min-width: 768px) {
+    .moe-page-frame[data-rail='true'] { display: grid; grid-template-columns: auto minmax(0, 1fr); }
+    .moe-page-rail { display: block; position: sticky; align-self: start; top: 0; height: 100svh; overflow-y: auto; }
+    .moe-page-rail .moe-sidebar { width: 256px; min-height: 100svh; border-radius: 0; border-width: 0 1px 0 0; }
+    .moe-page-rail .moe-sidebar[data-collapsed='true'] { width: 72px; }
+  }
+  .moe-language-picker { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 100px; padding: 8px 10px; border: 1px solid transparent; background: transparent; color: var(--moe-foreground); font-size: 13px; cursor: pointer; }
+  .moe-language-picker:hover:not(:disabled), .moe-language-picker[data-state='open'] { background: var(--moe-surface-raised); border-color: var(--moe-line); }
+  .moe-language-picker > svg { width: 18px; height: 18px; }
+  .moe-language-picker > .moe-select-chevron { width: 14px; height: 14px; }
+  .moe-language-menu { min-width: 176px; max-width: calc(100vw - 32px); }
+  .moe-navigation-progress { position: fixed; z-index: 10000; inset: 0 0 auto; height: 3px; overflow: hidden; pointer-events: none; }
+  .moe-navigation-progress > span { display: block; width: 100%; height: 100%; background: var(--moe-primary); transform-origin: left; transition: transform var(--moe-motion-fast) linear; }
+  .moe-navigation-progress[data-error='true'] > span { background: var(--moe-danger); }
+  .moe-profile-identity { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-block: 8px; text-align: center; }
+  .moe-profile-identity > .moe-avatar { width: 80px; height: 80px; margin-bottom: 8px; font-size: 24px; }
+  .moe-profile-caption { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--moe-line); color: var(--moe-muted); font-size: 12px; line-height: 1.8; }
+  .moe-auth-main .moe-page-heading h1 { font-size: 28px; line-height: 1.2; }
+  .moe-auth-alternative { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; color: var(--moe-muted); font-size: 14px; }
+  .moe-auth-headline { max-width: 13ch; margin-top: 28px; font-size: clamp(32px, 3vw, 44px); line-height: 1.4; font-weight: 600; text-wrap: balance; }
+  .moe-page-frame[data-density='landing'] .moe-page-main { width: 100%; max-width: none; padding: 0; }
+  .moe-landing-intro { border-bottom: 1px solid var(--moe-line); background: var(--moe-surface); padding-block: clamp(56px, 8vw, 112px); }
+  .moe-landing-inner { width: min(100%, 1240px); padding-inline: 28px; margin-inline: auto; }
+  .moe-landing-intro h1 { max-width: 24ch; word-break: keep-all; overflow-wrap: anywhere; font-size: clamp(32px, 4vw, 48px); line-height: 1.3; letter-spacing: -.025em; font-weight: 650; text-wrap: balance; }
+  .moe-landing-intro p { max-width: 46rem; margin-top: 20px; color: var(--moe-muted); font-size: 16px; line-height: 1.9; }
+  .moe-landing-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 24px; margin-top: 28px; }
+  .moe-landing-content { display: grid; gap: 28px; padding-block: 48px; }
+  .moe-page-enter-active, .moe-page-leave-active { transition: opacity 160ms ease, transform 160ms ease; }
+  .moe-page-enter-from { opacity: 0; transform: translateY(4px); }
+  .moe-page-leave-to { opacity: 0; transform: translateY(-2px); }
+  .moe-layout-enter-active, .moe-layout-leave-active { transition: opacity 140ms ease; }
+  .moe-layout-enter-from, .moe-layout-leave-to { opacity: 0; }
+  @media (max-width: 767px) { .moe-landing-inner { padding-inline: 20px; } .moe-landing-content { padding-block: 28px; } }
+  @media (prefers-reduced-motion: reduce) { .moe-page-enter-active, .moe-page-leave-active, .moe-layout-enter-active, .moe-layout-leave-active { transition-duration: .01ms; } .moe-page-enter-from, .moe-page-leave-to { transform: none; } .moe-navigation-progress > span { transition: none; } }
+}

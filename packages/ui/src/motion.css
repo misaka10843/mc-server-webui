@@ -1,0 +1,36 @@
+@layer components {
+  .moe-button { transition: background-color var(--moe-motion-fast), border-color var(--moe-motion-fast), color var(--moe-motion-fast), filter var(--moe-motion-fast), transform var(--moe-motion-fast) var(--moe-ease-out); }
+  .moe-button:not(:disabled):active { transform: scale(.97); }
+  .moe-input { transition: border-color var(--moe-motion-fast), background-color var(--moe-motion-fast), box-shadow var(--moe-motion-fast); }
+  .moe-input:focus-visible { box-shadow: 0 0 0 4px color-mix(in srgb, var(--moe-focus) 10%, transparent); }
+  .moe-check, .moe-radio, .moe-switch { transition: background-color var(--moe-motion-normal), border-color var(--moe-motion-normal), box-shadow var(--moe-motion-fast); }
+  .moe-choice:not([data-disabled='true']):hover :is(.moe-check, .moe-radio) { box-shadow: 0 0 0 4px color-mix(in srgb, var(--moe-solid) 10%, transparent); }
+  .moe-check > [data-state='checked'], .moe-check > [data-state='indeterminate'], .moe-radio-indicator { animation: moe-mark-in var(--moe-motion-normal) var(--moe-ease-spring); }
+  .moe-switch-thumb { transition: transform var(--moe-motion-normal) var(--moe-ease-spring); box-shadow: 0 1px 3px #00000020; }
+  .moe-tab { transition: color var(--moe-motion-fast), opacity var(--moe-motion-fast); }
+  .moe-tabs-indicator { transition: transform var(--moe-motion-slow) var(--moe-ease-spring), width var(--moe-motion-slow) var(--moe-ease-spring), height var(--moe-motion-normal); }
+  .moe-tabs-content[data-state='active'] { animation: moe-panel-in var(--moe-motion-normal) var(--moe-ease-out); }
+  .moe-select-item { transition: background-color var(--moe-motion-fast), color var(--moe-motion-fast); }
+  .moe-select-chevron { transition: transform var(--moe-motion-normal) var(--moe-ease-spring); }
+  [data-state='open'] > .moe-select-chevron { transform: rotate(180deg); }
+  .moe-popover { transform-origin: var(--reka-select-content-transform-origin, var(--reka-combobox-content-transform-origin, var(--reka-dropdown-menu-content-transform-origin, var(--reka-popover-content-transform-origin, var(--reka-tooltip-content-transform-origin, center))))); }
+  .moe-popover[data-state='open'], .moe-popover[data-state='delayed-open'], .moe-popover[data-state='instant-open'] { animation: moe-popover-in var(--moe-motion-normal) var(--moe-ease-out); }
+  .moe-popover[data-state='closed'] { animation: moe-popover-out var(--moe-motion-fast) ease-in; }
+  .moe-dialog-overlay[data-state='open'] { animation: moe-fade-in var(--moe-motion-normal) ease-out; }
+  .moe-dialog-overlay[data-state='closed'] { animation: moe-fade-out var(--moe-motion-fast) ease-in; }
+  .moe-dialog[data-state='open'] { animation: moe-dialog-in var(--moe-motion-slow) var(--moe-ease-out); }
+  .moe-dialog[data-state='closed'] { animation: moe-dialog-out var(--moe-motion-fast) ease-in; }
+  @keyframes moe-mark-in { from { opacity: 0; transform: scale(.55); } to { opacity: 1; transform: scale(1); } }
+  @keyframes moe-panel-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes moe-popover-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: scale(1); } }
+  @keyframes moe-popover-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(.98); } }
+  @keyframes moe-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes moe-fade-out { from { opacity: 1; } to { opacity: 0; } }
+  @keyframes moe-dialog-in { from { opacity: 0; transform: translateY(8px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes moe-dialog-out { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(4px) scale(.98); } }
+  @media (prefers-reduced-motion: reduce) {
+    .moe-button, .moe-input, .moe-check, .moe-radio, .moe-switch, .moe-switch-thumb, .moe-tab, .moe-tabs-indicator, .moe-select-item, .moe-select-chevron { transition: none; }
+    .moe-button:not(:disabled):active { transform: none; }
+    .moe-check > [data-state], .moe-radio-indicator, .moe-tabs-content[data-state='active'], .moe-popover[data-state], .moe-dialog[data-state], .moe-dialog-overlay[data-state] { animation: none; }
+  }
+}

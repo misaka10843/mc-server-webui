@@ -1,0 +1,68 @@
+@layer components {
+  .moe-nav-item { position: relative; display: flex; align-items: center; gap: 10px; min-height: 44px; min-width: 0; padding: 10px 12px; border-radius: var(--moe-radius-control); color: var(--moe-muted); font-size: 14px; text-decoration: none; transition: color var(--moe-motion-fast), background-color var(--moe-motion-fast); }
+  .moe-nav-item > svg { flex-shrink: 0; }
+  .moe-nav-item:not([aria-disabled]):hover { color: var(--moe-foreground); background: var(--moe-surface-raised); }
+  .moe-nav-item[data-active='true'] { color: var(--moe-primary-ink); background: var(--moe-accent); font-weight: 500; }
+  .moe-nav-item[aria-disabled] { opacity: .45; cursor: not-allowed; }
+  .moe-nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .moe-nav-count { margin-left: auto; padding: 1px 6px; border-radius: 5px; font-size: 11px; background: var(--moe-surface-raised); color: var(--moe-muted); font-variant-numeric: tabular-nums; }
+  .moe-navbar { display: flex; align-items: center; gap: 24px; min-height: 68px; padding: 10px 20px; border-bottom: 1px solid var(--moe-line); background: var(--moe-surface); color: var(--moe-foreground); }
+  .moe-navbar-brand { flex-shrink: 0; border-radius: 4px; font-size: 19px; font-weight: 650; letter-spacing: -.5px; color: var(--moe-primary-ink); }
+  .moe-navbar-links { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; }
+  .moe-navbar-links .moe-nav-item { flex-shrink: 0; }
+  .moe-navbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; min-width: 0; }
+  .moe-navbar-toggle { display: none; }
+  .moe-mobile-nav { display: grid; gap: 6px; }
+  .moe-sidebar { display: flex; flex-direction: column; width: 244px; max-width: 100%; min-height: 400px; padding: 12px; border: 1px solid var(--moe-line); border-radius: var(--moe-radius-panel); background: var(--moe-surface); color: var(--moe-foreground); transition: width var(--moe-motion-normal) var(--moe-ease-out); }
+  .moe-sidebar[data-collapsed='true'] { width: 72px; }
+  .moe-sidebar-heading { display: flex; align-items: center; gap: 8px; min-height: 44px; margin-bottom: 16px; }
+  .moe-sidebar-groups { display: grid; gap: 24px; }
+  .moe-sidebar-group { padding: 0 12px 6px; font-size: 11px; font-weight: 500; letter-spacing: .06em; color: var(--moe-muted); }
+  .moe-sidebar-footer { margin-top: auto; padding-top: 20px; }
+  .moe-nav-item[data-compact='true'] { justify-content: center; padding-inline: 0; }
+  .moe-nav-item[data-compact='true']:not(:has(svg)) .moe-nav-label { position: static; width: 24px; height: auto; clip-path: none; overflow: hidden; }
+  .moe-breadcrumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--moe-muted); }
+  .moe-breadcrumbs li { display: inline-flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+  .moe-breadcrumbs a { border-radius: 3px; transition: color var(--moe-motion-fast); }
+  .moe-breadcrumbs a:hover { color: var(--moe-primary-ink); }
+  .moe-breadcrumbs [aria-current] { color: var(--moe-foreground); }
+  .moe-dropdown { min-width: 220px; max-width: min(340px, calc(100vw - 24px)); }
+  .moe-menu-heading { padding: 9px 10px; font-size: 12px; color: var(--moe-muted); }
+  .moe-menu-item { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 8px 10px; outline: none; border-radius: var(--moe-radius-control); font-size: 14px; cursor: default; transition: background-color var(--moe-motion-fast), color var(--moe-motion-fast); }
+  .moe-menu-item > svg { flex-shrink: 0; }
+  .moe-menu-item[data-highlighted] { background: var(--moe-accent); color: var(--moe-primary-ink); }
+  .moe-menu-item[data-danger='true'] { color: var(--moe-danger); }
+  .moe-menu-item[data-danger='true'][data-highlighted] { background: var(--moe-danger-soft); }
+  .moe-menu-item[data-disabled] { opacity: .4; }
+  .moe-menu-shortcut { color: var(--moe-muted); font-size: 11px; }
+  .moe-menu-separator { height: 1px; margin: 5px; background: var(--moe-line); }
+  .moe-drawer { position: fixed; z-index: 50; top: 0; bottom: 0; display: flex; flex-direction: column; gap: 20px; width: min(360px, calc(100vw - 32px)); padding: 20px; background: var(--moe-surface); color: var(--moe-foreground); box-shadow: var(--moe-shadow-popup); outline: none; overflow-y: auto; }
+  .moe-drawer-left { left: 0; border-right: 1px solid var(--moe-line); --moe-drawer-offset: -100%; }
+  .moe-drawer-right { right: 0; border-left: 1px solid var(--moe-line); --moe-drawer-offset: 100%; }
+  .moe-drawer-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .moe-drawer[data-state='open'] { animation: moe-drawer-in var(--moe-motion-slow) var(--moe-ease-out); }
+  .moe-drawer[data-state='closed'] { animation: moe-drawer-out var(--moe-motion-normal) ease-in; }
+  .moe-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+  .moe-page-list { position: relative; isolation: isolate; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .moe-page-indicator { position: absolute; z-index: 0; top: 0; left: 0; border-radius: var(--moe-radius-control); background: var(--moe-primary); transition: transform var(--moe-motion-slow) var(--moe-ease-spring), width var(--moe-motion-normal); pointer-events: none; }
+  .moe-page-button { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 44px; padding: 8px; border: 1px solid transparent; border-radius: var(--moe-radius-control); font-size: 14px; font-variant-numeric: tabular-nums; color: var(--moe-muted); transition: background-color var(--moe-motion-fast), color var(--moe-motion-fast), transform var(--moe-motion-fast); }
+  .moe-page-button:not(:disabled):hover { background: var(--moe-surface-raised); color: var(--moe-foreground); }
+  .moe-page-button[data-selected] { background: var(--moe-primary); color: var(--moe-on-primary); }
+  .moe-page-list[data-indicator-ready='true'] .moe-page-button[data-selected] { background: transparent; }
+  .moe-page-list .moe-page-button[data-selected]:hover { background: transparent; color: var(--moe-on-primary); }
+  .moe-page-button:not(:disabled):active { transform: scale(.95); }
+  .moe-page-button:disabled { opacity: .4; cursor: not-allowed; }
+  .moe-page-ellipsis { display: inline-grid; place-items: center; min-width: 24px; color: var(--moe-muted); }
+  .moe-page-jump { display: flex; align-items: center; gap: 4px; }
+  .moe-page-jump input { width: 76px; height: 40px; border: 1px solid var(--moe-line); border-radius: var(--moe-radius-control); background: var(--moe-surface); padding: 6px 8px; font-size: 12px; }
+  .moe-steps { display: flex; flex-wrap: wrap; gap: 24px; }
+  .moe-steps > li { display: flex; align-items: flex-start; gap: 10px; flex: 1 1 140px; color: var(--moe-muted); }
+  .moe-step-marker { display: inline-grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; border: 1px solid var(--moe-line); border-radius: 50%; font-size: 12px; transition: background-color var(--moe-motion-normal), color var(--moe-motion-normal); }
+  .moe-steps [aria-current] { color: var(--moe-foreground); }
+  .moe-steps [aria-current] .moe-step-marker { background: var(--moe-primary); color: var(--moe-on-primary); border-color: var(--moe-primary); }
+  .moe-steps [data-complete='true'] .moe-step-marker { background: var(--moe-accent); color: var(--moe-primary-ink); border-color: transparent; }
+  @keyframes moe-drawer-in { from { transform: translateX(var(--moe-drawer-offset)); opacity: .6; } to { transform: translateX(0); opacity: 1; } }
+  @keyframes moe-drawer-out { from { transform: translateX(0); opacity: 1; } to { transform: translateX(var(--moe-drawer-offset)); opacity: .6; } }
+  @media (max-width: 1023px) { .moe-navbar { gap: 10px; padding-inline: 12px; } .moe-navbar-toggle { display: inline-flex; } .moe-navbar-links { display: none; } .moe-navbar-brand { font-size: 17px; } }
+  @media (prefers-reduced-motion: reduce) { .moe-nav-item, .moe-sidebar, .moe-breadcrumbs a, .moe-menu-item, .moe-page-button, .moe-page-indicator, .moe-step-marker { transition: none; } .moe-page-button:not(:disabled):active { transform: none; } .moe-drawer[data-state] { animation: none; } }
+}

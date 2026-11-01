@@ -1,0 +1,4 @@
+@layer components {
+  .moe-password-feedback { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--moe-line); border-radius: var(--moe-radius-control); background: var(--moe-surface-raised); }
+  .moe-password-feedback meter { accent-color: var(--moe-primary); }
+}

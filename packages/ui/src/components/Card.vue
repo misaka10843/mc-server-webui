@@ -1,0 +1,4 @@
+<script setup lang="ts">
+withDefaults(defineProps<{ title?: string; description?: string; headingLevel?: 'h2' | 'h3' | 'h4'; layout?: 'default' | 'form'; padding?: 'none' | 'sm' | 'md' | 'lg' }>(), { headingLevel: 'h2', layout: 'default', padding: 'md' })
+</script>
+<template><section class="moe-card" :data-layout="layout"><header v-if="title || $slots.header" :class="layout === 'form' ? 'moe-card-form-heading' : 'border-b border-line px-5 py-4'"><slot name="header"><component :is="headingLevel" class="font-semibold" :class="layout === 'form' ? 'text-lg' : 'text-base'">{{ title }}</component><p v-if="description" class="moe-description mt-1">{{ description }}</p></slot></header><div :class="layout === 'form' ? 'moe-card-form-content' : { none: '', sm: 'p-3', md: 'p-5', lg: 'p-6' }[padding]"><slot /></div><footer v-if="$slots.footer" class="border-t border-line px-5 py-3"><slot name="footer" /></footer></section></template>

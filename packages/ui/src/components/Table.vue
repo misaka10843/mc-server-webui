@@ -1,0 +1,10 @@
+<script setup lang="ts" generic="Row extends Record<string, unknown>">
+import type { MoeTableColumn } from '../types'
+import type { MoeIllustrationName } from '../illustrations'
+import Icon from './Icon.vue'
+import EmptyState from './EmptyState.vue'
+import Spinner from './Spinner.vue'
+withDefaults(defineProps<{ caption: string; columns: MoeTableColumn[]; rows: Row[]; rowKey: keyof Row; loading?: boolean; loadingLabel?: string; emptyTitle?: string; emptyDescription?: string; emptyIllustration?: MoeIllustrationName; sortKey?: string; sortDirection?: 'asc' | 'desc' }>(), { loadingLabel: '正在加载数据', emptyTitle: '暂无数据' })
+defineEmits<{ sort: [key: string] }>()
+</script>
+<template><div class="moe-table-scroll moe-focus" role="region" :aria-label="caption" tabindex="0"><table class="moe-table" :aria-busy="loading"><caption class="sr-only">{{ caption }}</caption><thead><tr><th v-for="column in columns" :key="column.key" scope="col" :data-align="column.align" :aria-sort="column.sortable ? sortKey === column.key ? sortDirection === 'desc' ? 'descending' : 'ascending' : 'none' : undefined"><button v-if="column.sortable" type="button" class="moe-table-sort moe-focus" @click="$emit('sort', column.key)">{{ column.label }}<Icon name="chevron-down" class="size-3.5" :class="{ 'rotate-180': sortKey === column.key && sortDirection === 'asc' }" /></button><template v-else>{{ column.label }}</template></th></tr></thead><tbody><tr v-if="loading"><td :colspan="columns.length"><div class="flex justify-center py-10"><Spinner :label="loadingLabel" /></div></td></tr><tr v-else-if="!rows.length"><td :colspan="columns.length"><EmptyState :title="emptyTitle" :description="emptyDescription" :illustration="emptyIllustration" illustration-size="sm"><slot name="empty" /></EmptyState></td></tr><template v-else><tr v-for="row in rows" :key="String(row[rowKey])"><td v-for="column in columns" :key="column.key" :data-align="column.align"><slot :name="`cell-${column.key}`" :row="row" :value="row[column.key]">{{ row[column.key] ?? '—' }}</slot></td></tr></template></tbody></table></div></template>

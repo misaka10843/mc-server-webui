@@ -1,0 +1,1 @@
+{"name":"mc-server-webui","private":true,"packageManager":"pnpm@12.14.0","scripts":{"build":"pnpm --filter web build"}}
