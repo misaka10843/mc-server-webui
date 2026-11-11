@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import hashlib
 import hmac
 import json
@@ -21,7 +22,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .db import connect, initialize, passwords
-from .plug import Plug
+from .plug import CloudPlug, Plug, wait_for_scan
+from .ssh_host import SSHHost, connection_options
+import asyncssh
+import anyio
 
 listeners: set[asyncio.Queue] = set()
 admin_listeners: set[asyncio.Queue] = set()
@@ -41,6 +45,8 @@ state_changed = asyncio.Event()
 login_attempts: dict[str, list[float]] = {}
 start_attempts: dict[int, list[float]] = {}
 login_lock = threading.Lock()
+cloud_discoveries = {}
+ssh_host: SSHHost | None = None
 
 
 def set_state(values: dict):
@@ -59,7 +65,7 @@ async def read_plug():
 
 async def monitor_plug():
     while True:
-        if plug is None:
+        if plug is None or isinstance(plug, CloudPlug):
             await asyncio.sleep(30)
             continue
         try:
@@ -105,7 +111,7 @@ def publish(event: str, payload: dict, *, admin_only=False):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global plug, state_changed, agent_send_lock, agent_connect_lock, plug_lock, operation_lock
+    global plug, state_changed, agent_send_lock, agent_connect_lock, plug_lock, operation_lock, ssh_host
     state_changed = asyncio.Event()
     agent_send_lock = asyncio.Lock()
     agent_connect_lock = asyncio.Lock()
@@ -119,16 +125,26 @@ async def lifespan(app: FastAPI):
     state["operation"] = dict(previous) if previous else None
     keys = ("MCWEB_PLUG_IP", "MCWEB_PLUG_TOKEN", "MCWEB_PLUG_MODEL", "MCWEB_PLUG_SWITCH_SIID", "MCWEB_PLUG_SWITCH_PIID")
     with connect() as db:
+        cloud_row = db.execute("SELECT did, region, siid, piid, user_id, security, service_token FROM cloud_plug WHERE id=1").fetchone()
         row = db.execute("SELECT ip, token, model, siid, piid FROM plug_config WHERE id=1").fetchone()
         if row is None and all(os.environ.get(key) and not os.environ[key].startswith("REPLACE_WITH_") for key in keys):
             db.execute("INSERT INTO plug_config VALUES (1,?,?,?,?,?)", tuple(os.environ[key] for key in keys))
             row = db.execute("SELECT ip, token, model, siid, piid FROM plug_config WHERE id=1").fetchone()
-    plug = Plug(**dict(row)) if row else None
+    plug = CloudPlug(**dict(cloud_row)) if cloud_row else Plug(**dict(row)) if row else None
     monitor = asyncio.create_task(monitor_plug())
     maintenance_task = asyncio.create_task(maintenance())
+    with connect() as db:
+        ssh_row = db.execute("SELECT config FROM ssh_host WHERE id=1").fetchone()
+    if ssh_row:
+        ssh_host = SSHHost(json.loads(ssh_row[0]), state, set_state, ssh_log, current_policy())
+        await ssh_host.start()
+    state.update({"ssh_configured": bool(ssh_row), "plug_configured": plug is not None})
     try:
         yield
     finally:
+        if ssh_host:
+            await ssh_host.close()
+            ssh_host = None
         maintenance_task.cancel()
         await asyncio.gather(maintenance_task, return_exceptions=True)
         if monitor:
@@ -145,6 +161,10 @@ class Login(BaseModel):
     password: str = Field(min_length=1, max_length=1024)
 
 
+class SetupAccount(Login):
+    password: str = Field(min_length=8, max_length=1024)
+
+
 class CreateUser(Login):
     role: str = Field(pattern="^(user|admin)$")
 
@@ -152,12 +172,12 @@ class CreateUser(Login):
 class UserUpdate(BaseModel):
     role: str = Field(pattern="^(user|admin)$")
     enabled: bool
-    password: str | None = Field(default=None, min_length=12, max_length=1024)
+    password: str | None = Field(default=None, min_length=8, max_length=1024)
 
 
 class PasswordChange(BaseModel):
     old_password: str = Field(min_length=1, max_length=1024)
-    new_password: str = Field(min_length=12, max_length=1024)
+    new_password: str = Field(min_length=8, max_length=1024)
 
 
 class PolicyUpdate(BaseModel):
@@ -182,6 +202,17 @@ class CloudLogin(BaseModel):
     locale: str = Field(pattern="^(cn|de|i2|ru|sg|us)$")
 
 
+class CloudRegion(BaseModel):
+    locale: str = Field(pattern="^(cn|de|i2|ru|sg|us|tw|in)$")
+
+
+class CloudPlugSelection(BaseModel):
+    discovery: str = Field(min_length=1, max_length=128)
+    did: str = Field(min_length=1, max_length=128)
+    siid: int = Field(ge=1, le=65535)
+    piid: int = Field(ge=1, le=65535)
+
+
 class CommandRequest(BaseModel):
     input: str = Field(min_length=1, max_length=4096)
 
@@ -191,7 +222,29 @@ class CompletionRequest(BaseModel):
     cursor: int = Field(ge=0, le=4096)
 
 
+class SSHAddress(BaseModel):
+    host: str = Field(min_length=1, max_length=255, pattern=r"^[a-zA-Z0-9.:-]+$")
+    port: int = Field(default=22, ge=1, le=65535)
+
+
+class SSHConfig(SSHAddress):
+    username: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$")
+    password: str = Field(default="", max_length=1024)
+    private_key: str = Field(default="", max_length=32768)
+    host_key: str = Field(default="", max_length=8192)
+    container: str = Field(default="minecraft", min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
+    mod_port: int = Field(default=8766, ge=1, le=65535)
+    mod_token: str = Field(default="", max_length=1024)
+
+
 async def agent_request(kind: str, data: dict, timeout: float = 10, request_id: str | None = None):
+    if ssh_host is not None:
+        try:
+            return await ssh_host.request(kind, data, timeout)
+        except TimeoutError as exc:
+            raise HTTPException(504, "SSH 请求超时，执行结果未知") from exc
+        except (OSError, RuntimeError, ValueError, asyncssh.Error) as exc:
+            raise HTTPException(503, str(exc)) from exc
     peer = agent
     if peer is None:
         raise HTTPException(503, "Server agent is offline")
@@ -239,7 +292,7 @@ def admin(current=Depends(user)):
 def check_origin(request: Request):
     origin = request.headers.get("origin")
     host = request.headers.get("host")
-    if not host or not origin or origin != f"{request.url.scheme}://{host}":
+    if not host or origin not in (f"http://{host}", f"https://{host}"):
         raise HTTPException(403, "Origin rejected")
 
 
@@ -256,6 +309,105 @@ def audit(user_id, action, detail=""):
         db.execute("INSERT INTO audit_events(created_at,user_id,action,detail) VALUES(?,?,?,?)", (time.time(), user_id, action, detail))
 
 
+def ssh_log(line):
+    log_lines.append(line)
+    publish("log", {"line": line}, admin_only=True)
+
+
+@app.get("/api/v1/admin/ssh")
+def get_ssh_config(current=Depends(admin)):
+    with connect() as db:
+        row = db.execute("SELECT config FROM ssh_host WHERE id=1").fetchone()
+    if not row:
+        return None
+    config = json.loads(row[0])
+    return {key: value for key, value in config.items() if key not in ("password", "private_key", "mod_token")}
+
+
+async def prepare_ssh_config(data):
+    config = data.model_dump()
+    with connect() as db:
+        row = db.execute("SELECT config FROM ssh_host WHERE id=1").fetchone()
+    previous = json.loads(row[0]) if row else {}
+    same_host = all(config[key] == previous.get(key) for key in ("host", "port"))
+    if same_host and not config["host_key"]:
+        config["host_key"] = previous.get("host_key", "")
+    if same_host and config["username"] == previous.get("username"):
+        for key in ("password", "private_key", "mod_token"):
+            if not config[key]:
+                config[key] = previous.get(key, "")
+    if data.password and not data.private_key:
+        config["private_key"] = ""
+    if not (config["password"] or config["private_key"]) or not config["mod_token"]:
+        raise HTTPException(422, "请填写 SSH 密码或私钥，以及 mod 密钥")
+    if not config["host_key"]:
+        try:
+            key = await asyncio.wait_for(asyncssh.get_server_host_key(config["host"], config["port"], config=None), 15)
+            if key is None:
+                raise ValueError("Missing host key")
+            config["host_key"] = key.export_public_key().decode().strip()
+        except (OSError, ValueError, asyncssh.Error, TimeoutError) as exc:
+            raise HTTPException(502, "首次连接需要读取主机密钥，请确认笔记本已开机且 SSH 可访问") from exc
+    try:
+        connection_options(config)
+    except (ValueError, asyncssh.Error) as exc:
+        raise HTTPException(422, "SSH 私钥或主机密钥格式无效") from exc
+    return config
+
+
+@app.post("/api/v1/admin/ssh/test")
+async def test_ssh_config(data: SSHConfig, request: Request, current=Depends(admin)):
+    check_csrf(request, current)
+    config = await prepare_ssh_config(data)
+    try:
+        async with asyncssh.connect(**connection_options(config)) as connection:
+            result = await connection.run("docker inspect --format '{{json .State}}' " + config["container"], check=True, timeout=15)
+            container = json.loads(result.stdout)["Status"]
+            poweroff = True
+            if config["username"] != "root":
+                result = await connection.run("sudo -n -l -- systemctl poweroff", check=False, timeout=10)
+                poweroff = result.exit_status == 0
+    except asyncssh.HostKeyNotVerifiable as exc:
+        raise HTTPException(409, "SSH 主机密钥已变化。若笔记本重装过系统，请在高级设置中更新主机指纹") from exc
+    except (OSError, ValueError, KeyError, asyncssh.Error, TimeoutError) as exc:
+        raise HTTPException(502, "连接测试失败，请检查 SSH 认证、容器名及 Docker 权限") from exc
+    return {"host_key": config["host_key"], "container": container, "poweroff": poweroff}
+
+
+@app.post("/api/v1/admin/ssh/probe")
+async def probe_ssh(data: SSHAddress, request: Request, current=Depends(admin)):
+    check_csrf(request, current)
+    try:
+        key = await asyncio.wait_for(asyncssh.get_server_host_key(data.host, data.port, config=None), 15)
+        if key is None:
+            raise ValueError("SSH 未返回主机密钥")
+        return {"host_key": key.export_public_key().decode().strip(), "fingerprint": key.get_fingerprint()}
+    except (OSError, ValueError, asyncssh.Error, TimeoutError) as exc:
+        raise HTTPException(502, "无法读取 SSH 主机密钥，请确认笔记本已开机且 SSH 可访问") from exc
+
+
+@app.put("/api/v1/admin/ssh")
+async def save_ssh_config(data: SSHConfig, request: Request, current=Depends(admin)):
+    global ssh_host
+    check_csrf(request, current)
+    async with operation_lock:
+        if current_operation or (ssh_host and ssh_host.shutdown_lock.locked()):
+            raise HTTPException(409, "服务器电源操作进行中，请稍后修改 SSH")
+        if agent is not None:
+            raise HTTPException(409, "请先停止旧版笔记本代理，再启用 SSH")
+        config = await prepare_ssh_config(data)
+        if ssh_host:
+            await ssh_host.close()
+        with connect() as db:
+            db.execute("INSERT INTO ssh_host VALUES (1,?) ON CONFLICT(id) DO UPDATE SET config=excluded.config", (json.dumps(config),))
+        ssh_host = SSHHost(config, state, set_state, ssh_log, current_policy())
+        await ssh_host.start()
+        await ssh_host.subscribe_logs(bool(admin_listeners))
+        set_state({"ssh_configured": True})
+    audit(current["id"], "update_ssh", config["host"])
+    return {"ok": True}
+
+
 def current_policy():
     with connect() as db:
         return dict(db.execute("SELECT revision, enabled, day_minutes, night_minutes, night_start, day_start FROM server_policy WHERE id=1").fetchone())
@@ -264,8 +416,28 @@ def current_policy():
 @app.get("/api/v1/admin/plug")
 def get_plug_config(current=Depends(admin)):
     with connect() as db:
+        cloud = db.execute("SELECT did, region, model, siid, piid FROM cloud_plug WHERE id=1").fetchone()
+        if cloud:
+            return {**dict(cloud), "mode": "cloud"}
         row = db.execute("SELECT ip, model, siid, piid FROM plug_config WHERE id=1").fetchone()
-    return dict(row) if row else None
+    return {**dict(row), "mode": "local"} if row else None
+
+
+@app.post("/api/v1/server/plug/refresh")
+async def refresh_plug(request: Request, current=Depends(user)):
+    check_csrf(request, current)
+    try:
+        value = await read_plug()
+    except Exception as exc:
+        set_state({"plug": "unknown"})
+        raise HTTPException(502, "无法读取插座，请检查设备在线状态；米家云模式下可能需要管理员重新扫码") from exc
+    set_state({"plug": "on" if value else "off"})
+    if value and state.get("shutdown") == "off":
+        set_state({"shutdown": "none"})
+    if not value and agent is None and state.get("shutdown") in ("preparing", "poweroff_requested"):
+        set_state({"shutdown": "off"})
+        audit(None, "plug_off", "Smart plug reports off after shutdown")
+    return {"plug": "on" if value else "off"}
 
 
 @app.put("/api/v1/admin/plug")
@@ -284,12 +456,44 @@ async def save_plug_config(data: PlugConfig, request: Request, current=Depends(a
                 candidate = Plug(data.ip, token, data.model, data.siid, data.piid)
                 try:
                     value = await asyncio.to_thread(candidate.status)
-                except Exception:
-                    raise HTTPException(502, "无法读取插座，请检查设备信息及局域网连接")
+                except Exception as exc:
+                    detail = str(exc).replace(token, "[REDACTED]")[:300]
+                    logger.warning("Smart plug verification failed: %s: %s", type(exc).__name__, detail)
+                    raise HTTPException(502, f"无法读取插座：{type(exc).__name__}: {detail}") from exc
                 db.execute("INSERT INTO plug_config VALUES (1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET ip=excluded.ip, token=excluded.token, model=excluded.model, siid=excluded.siid, piid=excluded.piid", (data.ip, token, data.model, data.siid, data.piid))
+                db.execute("DELETE FROM cloud_plug")
             plug = candidate
-            set_state({"plug": "on" if value else "off"})
+            set_state({"plug": "on" if value else "off", "plug_configured": True})
     audit(current["id"], "update_plug", data.model)
+    return {"ok": True}
+
+
+@app.put("/api/v1/admin/plug/cloud")
+async def save_cloud_plug(data: CloudPlugSelection, request: Request, current=Depends(admin)):
+    global plug
+    check_csrf(request, current)
+    discovery = cloud_discoveries.get(data.discovery)
+    if not discovery or discovery["user"] != current["id"] or discovery["expires"] < time.monotonic():
+        raise HTTPException(400, "扫码会话已过期，请重新扫码")
+    device = discovery["devices"].get(data.did)
+    if device is None:
+        raise HTTPException(400, "请从扫码结果中选择插座")
+    candidate = CloudPlug(data.did, discovery["region"], data.siid, data.piid, *discovery["session"])
+    async with operation_lock:
+        if current_operation is not None:
+            raise HTTPException(409, "服务器电源操作进行中，请稍后修改插座")
+        async with plug_lock:
+            try:
+                value = await asyncio.to_thread(candidate.status)
+            except Exception as exc:
+                logger.warning("Cloud plug verification failed: %s", type(exc).__name__)
+                raise HTTPException(502, "米家云读取插座失败，请检查设备在线状态或重新扫码") from exc
+            with connect() as db:
+                db.execute("INSERT INTO cloud_plug VALUES (1,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET did=excluded.did, region=excluded.region, model=excluded.model, siid=excluded.siid, piid=excluded.piid, user_id=excluded.user_id, security=excluded.security, service_token=excluded.service_token", (data.did, discovery["region"], device["model"], data.siid, data.piid, *discovery["session"]))
+            plug = candidate
+            set_state({"plug": "on" if value else "off", "plug_configured": True})
+    cloud_discoveries.pop(data.discovery, None)
+    audit(current["id"], "update_plug_cloud", device["model"])
     return {"ok": True}
 
 
@@ -304,6 +508,63 @@ async def discover_plugs(data: CloudLogin, request: Request, current=Depends(adm
     except Exception:
         raise HTTPException(502, "米家登录或读取设备失败，请检查账号、地区及验证要求")
     return [{"name": d.name, "ip": d.ip, "token": d.token, "model": d.model} for d in devices.values() if not d.parent_id]
+
+
+@app.post("/api/v1/admin/plug/qr")
+async def discover_plugs_qr(data: CloudRegion, request: Request, current=Depends(admin)):
+    check_csrf(request, current)
+    from mihome_ctl.connector import QrCodeXiaomiCloudConnector
+    from mihome_ctl.core.cloudapi import collect
+
+    async def events():
+        connector = QrCodeXiaomiCloudConnector()
+        original_request = connector._session.request
+        stopped = threading.Event()
+        worker = None
+
+        async def run(function, *args):
+            nonlocal worker
+            worker = asyncio.create_task(asyncio.to_thread(function, *args))
+            return await asyncio.shield(worker)
+
+        def bounded_request(method, url, **kwargs):
+            if stopped.is_set():
+                raise RuntimeError("扫码已取消")
+            kwargs.setdefault("timeout", 15)
+            return original_request(method, url, **kwargs)
+
+        connector._session.request = bounded_request
+        try:
+            if not await run(connector.login_step_1):
+                raise RuntimeError("无法获取米家登录二维码")
+            image = await run(connector._session.get, connector._qr_image_url)
+            image.raise_for_status()
+            qr = base64.b64encode(image.content).decode("ascii")
+            yield f"event: qr\ndata: {json.dumps({'image': qr})}\n\n"
+            if not await run(wait_for_scan, connector, stopped) or not await run(connector.login_step_4):
+                raise RuntimeError("扫码登录失败或二维码已过期")
+            rows = await run(collect, connector, [data.locale])
+            devices = [{"name": row["name"], "did": row["did"], "model": row["model"]} for row in rows if row.get("did")]
+            now = time.monotonic()
+            for key, item in list(cloud_discoveries.items()):
+                if item["expires"] < now or item["user"] == current["id"]:
+                    cloud_discoveries.pop(key, None)
+            if len(cloud_discoveries) >= 32:
+                raise RuntimeError("扫码会话过多")
+            key = secrets.token_urlsafe(32)
+            cloud_discoveries[key] = {"user": current["id"], "expires": now + 600, "region": data.locale, "session": (str(connector.userId), connector._ssecurity, connector._serviceToken), "devices": {device["did"]: device for device in devices}}
+            yield f"event: devices\ndata: {json.dumps({'discovery': key, 'devices': devices}, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            logger.warning("Xiaomi QR discovery failed: %s", type(exc).__name__)
+            yield 'event: error\ndata: {"message":"扫码登录或读取设备失败，请重试并确认米家地区"}\n\n'
+        finally:
+            stopped.set()
+            with anyio.CancelScope(shield=True):
+                if worker is not None:
+                    await asyncio.gather(worker, return_exceptions=True)
+                connector._session.close()
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/v1/admin/policy")
@@ -359,13 +620,15 @@ async def run_start(operation_id: str):
                     raise RuntimeError("无法确认 Minecraft 容器状态，请检查主机")
         else:
             update_operation(operation_id, "running", "正在确认插座状态")
-            if await read_plug():
+            powered = await read_plug()
+            if powered and ssh_host is None:
                 raise RuntimeError("插座仍在供电且主机状态未知，请检查主机")
-            set_state({"plug": "off"})
-            update_operation(operation_id, "running", "正在开启插座")
-            async with plug_lock:
-                await asyncio.to_thread(plug.on)
-            set_state({"plug": "unknown", "shutdown": "none"})
+            if not powered:
+                set_state({"plug": "off"})
+                update_operation(operation_id, "running", "正在开启插座")
+                async with plug_lock:
+                    await asyncio.to_thread(plug.on)
+            set_state({"plug": "on", "shutdown": "none"})
         deadline = asyncio.get_running_loop().time() + 900
         while state["minecraft"] != "ready":
             if state.get("container") == "exited" and state.get("container_started_at"):
@@ -403,6 +666,9 @@ async def run_shutdown(operation_id: str):
         while True:
             if state.get("shutdown") == "failed":
                 raise RuntimeError(state.get("shutdown_error") or "关机未完成")
+            if ssh_host is not None and state.get("host") != "online" and state.get("shutdown") == "poweroff_requested":
+                update_operation(operation_id, "complete", "关机请求已发送，SSH 已断开；插座断电状态可手动刷新确认")
+                break
             if state.get("shutdown") == "off" and state.get("plug") == "off":
                 update_operation(operation_id, "complete", "插座已断电")
                 break
@@ -459,6 +725,8 @@ async def start_server(request: Request, current=Depends(user)):
             raise HTTPException(429, "Too many start requests")
         recent.append(now_monotonic)
         start_attempts[current["id"]] = recent
+        if state.get("shutdown") == "failed":
+            set_state({"shutdown": "none", "shutdown_error": None})
         operation_id = uuid.uuid4().hex
         now = time.time()
         with connect() as db:
@@ -504,6 +772,42 @@ async def completions(data: CompletionRequest, request: Request, current=Depends
     return await agent_request("completion", data.model_dump())
 
 
+def create_session(account, response):
+    token = secrets.token_urlsafe(32)
+    csrf = secrets.token_urlsafe(32)
+    with connect() as db:
+        db.execute("INSERT INTO sessions(token_hash,user_id,expires_at,csrf_hash) VALUES(?,?,?,?)", (hashlib.sha256(token.encode()).hexdigest(), account["id"], time.time() + 86400, hashlib.sha256(csrf.encode()).hexdigest()))
+    secure = os.environ.get("MCWEB_SECURE_COOKIE") == "true"
+    response.set_cookie("mc_session", token, httponly=True, samesite="lax", secure=secure, max_age=86400)
+    response.set_cookie("mc_csrf", csrf, samesite="lax", secure=secure, max_age=86400)
+    return {key: account[key] for key in ("id", "username", "role")}
+
+
+@app.get("/api/v1/setup")
+def setup_status():
+    with connect() as db:
+        return {"required": db.execute("SELECT 1 FROM users WHERE role='admin' LIMIT 1").fetchone() is None}
+
+
+@app.post("/api/v1/setup")
+def setup_account(data: SetupAccount, request: Request, response: Response):
+    check_origin(request)
+    with connect() as db:
+        if db.execute("SELECT 1 FROM users WHERE role='admin' LIMIT 1").fetchone():
+            raise HTTPException(409, "管理员已经创建，请直接登录")
+    password_hash = passwords.hash(data.password)
+    with connect() as db:
+        try:
+            result = db.execute("INSERT INTO users(username,password_hash,role) SELECT ?,?,'admin' WHERE NOT EXISTS (SELECT 1 FROM users WHERE role='admin')", (data.username, password_hash))
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(409, "用户名已存在，请换一个名称") from exc
+        if result.rowcount != 1:
+            raise HTTPException(409, "管理员已经创建，请直接登录")
+        account = dict(db.execute("SELECT id,username,role FROM users WHERE id=?", (result.lastrowid,)).fetchone())
+    audit(account["id"], "setup")
+    return create_session(account, response)
+
+
 @app.post("/api/v1/auth/login")
 def login(data: Login, request: Request, response: Response):
     check_origin(request)
@@ -529,15 +833,10 @@ def login(data: Login, request: Request, response: Response):
         if not valid:
             audit(None, "login_failed", data.username)
             raise HTTPException(401, "Invalid credentials")
-        token = secrets.token_urlsafe(32)
-        csrf = secrets.token_urlsafe(32)
-        db.execute("INSERT INTO sessions(token_hash,user_id,expires_at,csrf_hash) VALUES(?,?,?,?)", (hashlib.sha256(token.encode()).hexdigest(), row["id"], time.time()+86400, hashlib.sha256(csrf.encode()).hexdigest()))
-    response.set_cookie("mc_session", token, httponly=True, samesite="lax", secure=os.environ.get("MCWEB_SECURE_COOKIE") == "true", max_age=86400)
-    response.set_cookie("mc_csrf", csrf, httponly=False, samesite="lax", secure=os.environ.get("MCWEB_SECURE_COOKIE") == "true", max_age=86400)
     with login_lock:
         login_attempts.pop(data.username, None)
     audit(row["id"], "login")
-    return {"id": row["id"], "username": row["username"], "role": row["role"]}
+    return create_session(row, response)
 
 
 @app.post("/api/v1/auth/logout")
@@ -565,8 +864,8 @@ def status(current=Depends(user)):
 @app.post("/api/v1/admin/users")
 def create_user(data: CreateUser, request: Request, current=Depends(admin)):
     check_csrf(request, current)
-    if len(data.password) < 12:
-        raise HTTPException(422, "Password must contain at least 12 characters")
+    if len(data.password) < 8:
+        raise HTTPException(422, "密码至少需要 8 位")
     with connect() as db:
         try:
             db.execute("INSERT INTO users(username,password_hash,role) VALUES(?,?,?)", (data.username, passwords.hash(data.password), data.role))
@@ -607,8 +906,11 @@ async def update_user(user_id: int, data: UserUpdate, request: Request, current=
             if count <= 1:
                 raise HTTPException(409, "Cannot disable the last administrator")
         db.execute("UPDATE users SET role=?, enabled=?, password_hash=COALESCE(?, password_hash) WHERE id=?", (data.role, data.enabled, password_hash, user_id))
-        db.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
-    disconnect_user(user_id)
+        changed = target["role"] != data.role or bool(target["enabled"]) != data.enabled or password_hash is not None
+        if changed:
+            db.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+    if changed:
+        disconnect_user(user_id)
     audit(current["id"], "update_user", target["username"])
     return {"ok": True}
 
@@ -633,11 +935,11 @@ async def change_password(data: PasswordChange, request: Request, current=Depend
 
 
 @app.get("/api/v1/events")
-async def events(request: Request, current=Depends(user)):
+async def events(request: Request, logs: bool = False, current=Depends(user)):
     queue = asyncio.Queue(maxsize=128)
     listeners.add(queue)
     listener_users[queue] = current["id"]
-    is_admin = current["role"] == "admin"
+    is_admin = current["role"] == "admin" and logs
     if is_admin:
         admin_listeners.add(queue)
         await sync_log_subscription()
@@ -662,6 +964,9 @@ async def events(request: Request, current=Depends(user)):
 
 
 async def sync_log_subscription():
+    if ssh_host is not None:
+        await ssh_host.subscribe_logs(bool(admin_listeners))
+        return
     peer = agent
     if peer is not None:
         async with agent_send_lock:
@@ -671,7 +976,9 @@ async def sync_log_subscription():
                 except (WebSocketDisconnect, RuntimeError, OSError):
                     logger.info("Agent disconnected while changing log subscription")
 @app.get("/api/v1/admin/logs")
-def recent_logs(current=Depends(admin)):
+async def recent_logs(current=Depends(admin)):
+    if ssh_host is not None:
+        await ssh_host.subscribe_logs(bool(admin_listeners))
     return {"lines": list(log_lines)[-500:]}
 
 
@@ -691,7 +998,7 @@ async def agent_socket(ws: WebSocket):
         await ws.close(code=1008)
         return
     async with agent_connect_lock:
-        if agent is not None:
+        if agent is not None or ssh_host is not None:
             await ws.close(code=1008)
             return
         await ws.accept()

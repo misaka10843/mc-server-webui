@@ -18,8 +18,9 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.lock
 FROM python:3.13-slim
 COPY --from=python-build /install /usr/local
 WORKDIR /app
-COPY backend/app /app/app
-COPY --from=frontend /src/frontend/dist /app/static
+COPY --chmod=755 backend/app /app/app
+COPY --chmod=755 agent/mc_agent/idle.py /app/mc_agent/idle.py
+COPY --chmod=755 --from=frontend /src/frontend/dist /app/static
 ENV PYTHONPATH=/app PYTHONUNBUFFERED=1 MCWEB_DB=/data/mcweb.sqlite3 MCWEB_STATIC_DIR=/app/static
 USER 1000:1000
 CMD ["python", "-m", "app.server"]

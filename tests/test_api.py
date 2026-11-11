@@ -4,7 +4,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -40,6 +40,85 @@ class ApiTests(unittest.TestCase):
     def headers(self):
         return {"Origin": "http://testserver", "X-CSRF-Token": self.client.cookies.get("mc_csrf", "")}
 
+    def test_first_run_setup_creates_admin_and_starts_session(self):
+        with db.connect() as conn:
+            conn.execute("DELETE FROM users")
+        self.assertTrue(self.client.get("/api/v1/setup").json()["required"])
+        response = self.client.post("/api/v1/setup", headers={"Origin": "http://testserver"}, json={"username": "owner", "password": "eight888"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["role"], "admin")
+        self.assertEqual(self.client.get("/api/v1/auth/me").json()["username"], "owner")
+        self.assertFalse(self.client.get("/api/v1/setup").json()["required"])
+        self.assertEqual(self.client.post("/api/v1/setup", headers={"Origin": "http://testserver"}, json={"username": "second", "password": "eight888"}).status_code, 409)
+
+    def test_setup_is_atomic_when_two_browsers_initialize(self):
+        from concurrent.futures import ThreadPoolExecutor
+        with db.connect() as conn:
+            conn.execute("DELETE FROM users")
+        def initialize(name):
+            client = TestClient(app, raise_server_exceptions=True)
+            try:
+                return client.post("/api/v1/setup", headers={"Origin": "http://testserver"}, json={"username": name, "password": "eight888"}).status_code
+            finally:
+                client.close()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(initialize, ["first", "second"]))
+        self.assertEqual(sorted(results), [200, 409])
+        with db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM users WHERE role='admin'").fetchone()[0], 1)
+
+    def test_saving_unchanged_account_preserves_its_session(self):
+        self.login("admin")
+        account = self.client.get("/api/v1/auth/me").json()
+        response = self.client.put(f"/api/v1/admin/users/{account['id']}", headers=self.headers(), json={"role": "admin", "enabled": True})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get("/api/v1/auth/me").status_code, 200)
+
+    def test_https_frontend_works_behind_http_proxy_without_forwarded_headers(self):
+        response = self.client.post("/api/v1/auth/login", headers={"Host": "mc.example.test", "Origin": "https://mc.example.test"}, json={"username": "admin", "password": "long-enough-password"})
+        self.assertEqual(response.status_code, 200)
+        rejected = self.client.post("/api/v1/auth/login", headers={"Host": "mc.example.test", "Origin": "https://evil.example.test"}, json={"username": "admin", "password": "long-enough-password"})
+        self.assertEqual(rejected.status_code, 403)
+
+    def test_first_ssh_save_remembers_host_key_without_manual_probe(self):
+        import asyncssh
+        key = asyncssh.generate_private_key("ssh-ed25519")
+        self.login("admin")
+        payload = {"host": "192.168.101.41", "username": "tester", "password": "ssh-secret", "container": "minecraft", "mod_token": "mod-secret"}
+        with patch("app.main.asyncssh.get_server_host_key", new_callable=AsyncMock, return_value=key) as probe, patch("app.main.SSHHost.start", new_callable=AsyncMock), patch("app.main.SSHHost.subscribe_logs", new_callable=AsyncMock), patch("app.main.asyncssh.connect") as connect_mock:
+            self.assertEqual(self.client.put("/api/v1/admin/ssh", headers=self.headers(), json=payload).status_code, 200)
+            self.assertTrue(self.client.get("/api/v1/admin/ssh").json()["host_key"].startswith("ssh-ed25519"))
+            payload["password"] = ""
+            payload["mod_token"] = ""
+            self.assertEqual(self.client.put("/api/v1/admin/ssh", headers=self.headers(), json=payload).status_code, 200)
+            self.assertEqual(probe.await_count, 1)
+            connect_mock.assert_not_called()
+
+    def test_ssh_configuration_is_admin_only_and_secrets_are_hidden(self):
+        import asyncssh
+        self.login("user")
+        self.assertEqual(self.client.get("/api/v1/admin/ssh").status_code, 403)
+        self.client.post("/api/v1/auth/logout", headers=self.headers())
+        self.login("admin")
+        public_key = asyncssh.generate_private_key("ssh-ed25519").export_public_key().decode()
+        payload = {"host": "192.168.101.41", "port": 22, "username": "tester", "password": "ssh-secret", "host_key": public_key, "container": "minecraft", "mod_token": "mod-secret"}
+        connection = MagicMock()
+        connection.run = AsyncMock(return_value=MagicMock(stdout='{"Status":"running"}'))
+        context = MagicMock()
+        context.__aenter__ = AsyncMock(return_value=connection)
+        context.__aexit__ = AsyncMock(return_value=False)
+        with patch("app.main.asyncssh.connect", return_value=context), patch("app.main.SSHHost.start", new_callable=AsyncMock), patch("app.main.SSHHost.subscribe_logs", new_callable=AsyncMock):
+            response = self.client.put("/api/v1/admin/ssh", headers=self.headers(), json=payload)
+            self.assertEqual(response.status_code, 200, response.text)
+            value = self.client.get("/api/v1/admin/ssh").json()
+            self.assertEqual(value["host"], "192.168.101.41")
+            for key in ("password", "private_key", "mod_token"):
+                self.assertNotIn(key, value)
+            payload["password"] = ""
+            payload["mod_token"] = ""
+            self.assertEqual(self.client.put("/api/v1/admin/ssh", headers=self.headers(), json=payload).status_code, 200)
+            self.assertEqual(main.ssh_host.config["password"], "ssh-secret")
+
     def test_authentication_role_and_origin(self):
         self.assertEqual(self.client.get("/api/v1/server/status").status_code, 401)
         self.assertEqual(self.login("user").status_code, 200)
@@ -65,6 +144,46 @@ class ApiTests(unittest.TestCase):
             payload["ip"] = "192.168.1.21"
             self.assertEqual(self.client.put("/api/v1/admin/plug", headers=self.headers(), json=payload).status_code, 502)
             self.assertEqual(self.client.get("/api/v1/admin/plug").json()["ip"], "192.168.1.20")
+
+    def test_qr_discovery_stream_requires_admin_and_returns_devices(self):
+        self.login("user")
+        self.assertEqual(self.client.post("/api/v1/admin/plug/qr", headers=self.headers(), json={"locale": "cn"}).status_code, 403)
+        self.client.post("/api/v1/auth/logout", headers=self.headers())
+        self.login("admin")
+        with patch("mihome_ctl.connector.QrCodeXiaomiCloudConnector") as connector, patch("mihome_ctl.core.cloudapi.collect") as collect, patch("app.main.wait_for_scan", return_value=True):
+            instance = connector.return_value
+            instance.login_step_1.return_value = True
+            instance.login_step_3.return_value = True
+            instance.login_step_4.return_value = True
+            instance._session.get.return_value.content = b"image"
+            instance.userId = "123"
+            instance._ssecurity = "security"
+            instance._serviceToken = "service-token"
+            collect.return_value = [{"name": "插座", "model": "test.plug", "did": "12345", "localip": "192.168.1.2", "token": "a" * 32}]
+            response = self.client.post("/api/v1/admin/plug/qr", headers=self.headers(), json={"locale": "cn"})
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("event: qr", response.text)
+            self.assertIn("event: devices", response.text)
+            self.assertIn("test.plug", response.text)
+            self.assertNotIn("service-token", response.text)
+            self.assertNotIn("a" * 32, response.text)
+            instance._session.close.assert_called_once()
+
+    def test_cloud_plug_save_and_restore(self):
+        self.login("admin")
+        main.cloud_discoveries["selection"] = {"user": 1, "expires": time.monotonic() + 60, "region": "cn", "session": ("123", "secret", "service-token"), "devices": {"did": {"model": "cuco.plug.v3"}}}
+        payload = {"discovery": "selection", "did": "did", "siid": 2, "piid": 1}
+        with patch("app.plug.api", return_value={"code": 0, "result": [{"code": 0, "value": True}]}) as cloud:
+            result = self.client.put("/api/v1/admin/plug/cloud", headers=self.headers(), json=payload)
+            self.assertEqual(result.status_code, 200)
+            self.assertEqual(self.client.get("/api/v1/admin/plug").json()["mode"], "cloud")
+            self.assertEqual(self.client.post("/api/v1/server/plug/refresh", headers=self.headers()).json()["plug"], "on")
+            self.assertEqual(cloud.call_args.args[2], "/miotspec/prop/get")
+            main.plug.on()
+            self.assertEqual(cloud.call_args.args[2], "/miotspec/prop/set")
+            with db.connect() as conn:
+                row = conn.execute("SELECT did, region, siid, piid, user_id, security, service_token FROM cloud_plug").fetchone()
+            self.assertTrue(main.CloudPlug(**dict(row)).status())
 
     def test_multiple_same_origin_addresses_and_cross_origin_rejection(self):
         credentials = {"username": "user", "password": "long-enough-password"}

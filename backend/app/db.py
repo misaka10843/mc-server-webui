@@ -48,8 +48,8 @@ def main():
     parser.add_argument("username")
     args = parser.parse_args()
     password = getpass.getpass("Password: ")
-    if len(password) < 12:
-        raise SystemExit("Password must contain at least 12 characters")
+    if len(password) < 8:
+        raise SystemExit("Password must contain at least 8 characters")
     initialize()
     with connect() as db:
         if db.execute("SELECT 1 FROM users WHERE role='admin'").fetchone():

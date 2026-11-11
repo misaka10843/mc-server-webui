@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./types": "./src/types.ts",
     "./styles.css": "./src/styles.css",
     "./mascot.png": "./src/assets/mascot-mint.png",
     "./components/*": "./src/components/*.vue"

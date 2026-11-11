@@ -3,6 +3,7 @@ import { apiFetch } from "./api"
 import { ref, watch, onUnmounted, nextTick } from "vue"
 import MoeButton from "@moetopia/ui/components/Button"
 import MoeCard from "@moetopia/ui/components/Card"
+import MoeInput from "@moetopia/ui/components/Input"
 
 type Suggestion = { text: string; start: number; end: number; tooltip?: string }
 const input = ref("")
@@ -11,7 +12,8 @@ const active = ref(0)
 const lines = ref<string[]>([])
 const history = ref<string[]>([])
 const historyIndex = ref(0)
-const field = ref<HTMLInputElement | null>(null)
+const field = ref<InstanceType<typeof MoeInput> | null>(null)
+function inputElement(): HTMLInputElement | undefined { return field.value?.$el.querySelector('input') }
 const sending = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
 let requestNumber = 0
@@ -29,7 +31,7 @@ function completeLater() {
   if (composing.value || !input.value) { entries.value = []; return }
   timer = setTimeout(async () => {
     try {
-      const cursor = field.value?.selectionStart ?? input.value.length
+      const cursor = inputElement()?.selectionStart ?? input.value.length
       const result = await request("completions", { input: input.value, cursor })
       if (seq === requestNumber) { entries.value = result.suggestions; active.value = 0 }
     } catch { if (seq === requestNumber) entries.value = [] }
@@ -42,7 +44,7 @@ function apply() {
   if (!item) return
   input.value = input.value.slice(0, item.start) + item.text + input.value.slice(item.end)
   entries.value = []
-  nextTick(() => { field.value?.focus(); field.value?.setSelectionRange(item.start + item.text.length, item.start + item.text.length) })
+  nextTick(() => { inputElement()?.focus(); inputElement()?.setSelectionRange(item.start + item.text.length, item.start + item.text.length) })
 }
 async function send() {
   const value = input.value.trim()
@@ -77,9 +79,9 @@ function keydown(event: KeyboardEvent) {
 </script>
 
 <template>
-  <MoeCard class="console"><h2>命令控制台</h2><p>以服务器控制台身份执行命令。</p>
+  <MoeCard class="console" title="命令终端" description="以服务器控制台身份执行。Tab 补全，↑ ↓ 选择候选或历史命令。">
     <div class="console-output" role="log" aria-label="命令输出"><div v-for="(line, index) in lines" :key="index">{{ line }}</div></div>
-    <div class="console-input"><label for="command-input">命令</label><input id="command-input" ref="field" v-model="input" autocomplete="off" @keydown="keydown" @compositionstart="composing = true" @compositionend="composing = false; completeLater()" @click="completeLater" />
+    <div class="console-input"><MoeInput id="command-input" ref="field" v-model="input" label="输入命令" placeholder="例如 list、say 服务器即将休息" autocomplete="off" @keydown="keydown" @compositionstart="composing = true" @compositionend="composing = false; completeLater()" @click="completeLater" />
       <MoeButton :disabled="sending || !input.trim()" @click="send">发送</MoeButton>
     </div>
     <ul v-if="entries.length" class="suggestions" role="listbox" aria-label="命令建议"><li v-for="(item, index) in entries" :key="`${item.start}-${item.end}-${item.text}`" :aria-selected="index === active" role="option" @mousedown.prevent="active = index; apply()">{{ item.text }} <small v-if="item.tooltip">{{ item.tooltip }}</small></li></ul>
